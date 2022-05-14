@@ -31,14 +31,10 @@ typedef struct CacheInfo {
 } CacheInfoT;
 
 typedef struct CacheLine {
-    bool valid;
+    int valid; // 0: invalid, 1: valid
     int tag;
     int lruCounter;
-} CacheLineT;
-
-typedef struct Cache {
-    CacheLineT **cl;
-} CacheT;
+} CacheLineT, **CacheT;
 
 typedef struct Result {
     int hits;
@@ -93,22 +89,99 @@ bool checkInputValid(CacheInfoT *cacheInfo)
 void createCacheLine(CacheInfoT *cacheInfo, CacheT *cache)
 {
     int S = 1 << cacheInfo->s;
-    cache->cl = malloc(S * cacheInfo->E * sizeof(CacheLineT));
-    if (cache->cl == NULL) {
-        printf("malloc failed when creating cacheline.\n");
-        exit(0);
+    int E = cacheInfo->E;
+    *cache = (CacheLineT **)malloc(S * sizeof(CacheLineT*));
+    for (int i = 0; i < S; i++) {
+        (*cache)[i] = (CacheLineT *)malloc(E * sizeof(CacheLineT));
+        for (int j = 0; j < E; j++) {
+            (*cache)[i][j].valid = 0;
+            (*cache)[i][j].tag = 0;
+            (*cache)[i][j].lruCounter = 0;
+        }
+    }
+}
+
+void destroyCacheLine(CacheInfoT *cacheInfo, CacheT *cache)
+{
+    int S = 1 << cacheInfo->s;
+    for (int i = 0; i < S; i++) {
+        free((*cache)[i]);
+    }
+    free(*cache);
+}
+
+void updateLruCounter(CacheT *cache, int index, int E)
+{
+    for (int i = 0; i < E; i++) {
+        CacheLineT *cl = &(*cache)[index][i];
+        cl->lruCounter++;
     }
 }
 
 // process load/modify/save
-void processMain(int addr, int size, const CacheInfoT *cacheInfo, CacheT *cache, ResultT *result)
+void processMain(int addr, const CacheInfoT *cacheInfo, CacheT *cache, ResultT *result)
 {
-    
+    int tmp = addr >> cacheInfo->b;
+    int tag = tmp >> cacheInfo->s;
+    int index = tmp & ((1 << cacheInfo->s) - 1);
+    int E = cacheInfo->E;
+
+    // Step1: check if hit
+    for (int i = 0; i < E; i++) {
+        CacheLineT *cl = &(*cache)[index][i];
+        if (cl->valid == 1 && cl->tag == tag) {
+            // hit
+            result->hits++;
+            updateLruCounter(cache, index, E);
+            cl->lruCounter = 0;
+            if (cacheInfo->isVerbose) {
+                printf(" hit");
+            }
+            return;
+        }
+    }
+
+    // Step2: not hit, check if miss
+    for (int i = 0; i < E; i++) {
+        CacheLineT *cl = &(*cache)[index][i];
+        if (cl->valid == 0) {
+            // miss
+            result->misses++;
+            cl->valid = 1;
+            cl->tag = tag;
+            updateLruCounter(cache, index, E);
+            cl->lruCounter = 0;
+            if (cacheInfo->isVerbose) {
+                printf(" miss");
+            }
+            return;
+        }
+    }
+
+    // Step3: not hit and miss, evict
+    result->evictions++;
+    result->misses++;
+    int maxCounter = -2;
+    int evictIndex = 0;
+    for (int i = 0; i < E; i++) {
+        CacheLineT *cl = &(*cache)[index][i];
+        if (cl->lruCounter > maxCounter) {
+            maxCounter = cl->lruCounter;
+            evictIndex = i;
+        }
+    }
+    CacheLineT *evictCacheLine = &(*cache)[index][evictIndex];
+    evictCacheLine->tag = tag;
+    updateLruCounter(cache, index, E);
+    evictCacheLine->lruCounter = 0;
+    if (cacheInfo->isVerbose) {
+        printf(" miss eviction");
+    }
+    return;
 }
 
 int main(int argc, char *argv[])
 {
-    printf("===========Main===========\n");
     CacheInfoT cacheInfo = {0};
     processInput(&cacheInfo, argc, argv);
     if (!checkInputValid(&cacheInfo)) {
@@ -124,31 +197,34 @@ int main(int argc, char *argv[])
     char identifier;
     unsigned addr;
     int size;
-    ResultT result = {
-        .hits = 0,
-        .misses = 0,
-        .evictions = 0
-    };
+    ResultT result = {0};
 
     while (fscanf(traceFile, " %c %x,%d", &identifier, &addr, &size)>0)
     {
+        if (cacheInfo.isVerbose) {
+            printf("%c %x,%d", identifier, addr, size);
+        }
+        
         switch(identifier) {
             case 'L':
-                processMain(addr, size, &cacheInfo, &cache, &result);
+                processMain(addr, &cacheInfo, &cache, &result);
                 break;
             case 'M':
-                processMain(addr, size, &cacheInfo, &cache, &result);
+                processMain(addr, &cacheInfo, &cache, &result);
             case 'S':
-                processMain(addr, size, &cacheInfo, &cache, &result);
+                processMain(addr, &cacheInfo, &cache, &result);
                 break;
             default:
                 break;
         }
+
+        if (cacheInfo.isVerbose) {
+            printf("\n");
+        }
     }
     fclose(traceFile);
-    free(cache.cl);
+    destroyCacheLine(&cacheInfo, &cache);
 
     printSummary(result.hits, result.misses, result.evictions);
     return 0;
 }
-
