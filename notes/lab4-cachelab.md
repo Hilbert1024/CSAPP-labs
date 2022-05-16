@@ -137,10 +137,10 @@ Usage: ./csim-ref [-hv] -s <s> -E <E> -b <b> -t <tracefile>
 > + -h: Optional help flag that prints usage info 
 >
 > + -v: Optional verbose flag that displays trace info 
-> + -s <s>: Number of set index bits (S = 2^s is the number of sets) 
-> + -E <E>: Associativity (number of lines per set) 
-> + -b <b>: Number of block bits (B = 2^b is the block size)
-> + -t <tracefile>: Name of the valgrind trace to replay
+> + -s \<s\>: Number of set index bits (S = 2^s is the number of sets) 
+> + -E \<E\>: Associativity (number of lines per set) 
+> + -b \<b\>: Number of block bits (B = 2^b is the block size)
+> + -t \<tracefile\>: Name of the valgrind trace to replay
 
 在 tracefile 中，每一条对内存访问的记录格式是 `[空格]操作符 地址,大小`，以 `I` 开头的是载入指令的记录，不算在内存访问中。
 
